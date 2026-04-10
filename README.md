@@ -21,7 +21,49 @@
 
 ```sh
 npm i @buxuku/ai-code-reviewer
-`````
+```
+
+## 配置
+
+项目支持通过配置文件进行配置。默认配置文件名为 `ai-code-reviewer.config.json`，位于项目根目录。
+
+### 配置文件格式
+
+```json
+{
+  "gitlab": {
+    "apiUrl": "https://gitlab.com/api/v4",
+    "accessToken": "your-gitlab-token",
+    "projectId": 12345,
+    "mergeRequestId": "678"
+  },
+  "openai": {
+    "apiUrl": "https://api.openai.com",
+    "accessToken": "your-openai-token",
+    "model": "gpt-4",
+    "organizationId": "org-id",
+    "temperature": 0.1,
+    "stream": false
+  },
+  "prompts": {
+    "systemContent": "You are a code reviewer...",
+    "suggestContent": "Next, I will send you each step...",
+    "fullContent": "First step, the following is..."
+  }
+}
+```
+
+### 配置优先级
+
+1. 命令行参数优先级最高，会覆盖配置文件中的设置
+2. 如果未提供命令行参数，则使用配置文件中的值
+3. 如果配置文件不存在或某项配置缺失，则使用默认值
+
+### 自定义配置文件路径
+
+```sh
+ai-code-reviewer -c /path/to/your/config.json -p 432288 -r 8
+```
 
 ## 使用
 
@@ -31,36 +73,47 @@ npm i @buxuku/ai-code-reviewer
 Usage: ai-code-reviewer [options]
 
 Options:
-  -g, --gitlab-api-url <string>       GitLab API URL (default: " https://gitlab.com/api/v4")
-  -t, --gitlab-access-token <string>  GitLab Access Token
-  -o, --openai-api-url <string>       OpenAI API URL (default: "https://api.openai.com")
-  -a, --openai-access-token <string>  OpenAI Access Token
-  -p, --project-id <number>           GitLab Project ID
-  -m, --merge-request-id <string>     GitLab Merge Request ID
-  -org, --organization-id <number>    organization ID
-  -h, --help                          display help for command
+  -c, --config <string>              Path to config file
+  -g, --gitlab-api-url <string>      GitLab API URL
+  -t, --gitlab-access-token <string> GitLab Access Token
+  -o, --openai-api-url <string>      OpenAI API URL
+  -a, --openai-access-token <string> OpenAI Access Token
+  -p, --project-id <number>          GitLab Project ID
+  -r, --merge-request-id <string>    GitLab Merge Request ID
+  -m, --model <string>               OpenAI model name
+  -org, --organization-id <string>   OpenAI organization ID
+  --temperature <number>             OpenAI temperature setting
+  -h, --help                         display help for command
 ```
 
-示例:
+### 使用配置文件
+
+如果有配置文件，只需要指定必要的参数：
 
 ```sh
-ai-code-reviewer -g https://gitlab.com/api/v4 -t glpat-xxxxxxx -o https://api.openai.com -a skxxxxxxx,skxxxxxxx -p 432288 -m 8
+ai-code-reviewer -p 432288 -r 8
+```
+
+### 命令行覆盖配置
+
+```sh
+ai-code-reviewer -c /path/to/config.json -m gpt-4 --temperature 0.5
 ```
 
 ### 在 CI 中使用
 
-在 GitLab CI/CD 中设置 `GITLAB_TOKEN` 和 `CHATGPT_KEY` 变量，`.gitlab-ci.yml` 如下：
+在 GitLab CI/CD 中设置变量，`.gitlab-ci.yml` 如下：
 
 ```yml
 stages:
   - merge-request
 
 Code Review:
-  stage: merge-request  
+  stage: merge-request
   image: node:latest
   script:
     - npm i @buxuku/ai-code-reviewer -g
-    - ai-code-reviewer -t "$GITLAB_TOKEN" -a "$CHATGPT_KEY"  -p "$CI_MERGE_REQUEST_PROJECT_ID" -m "$CI_MERGE_REQUEST_IID"
+    - ai-code-reviewer -t "$GITLAB_TOKEN" -a "$CHATGPT_KEY" -p "$CI_MERGE_REQUEST_PROJECT_ID" -r "$CI_MERGE_REQUEST_IID"
   only:
     - merge_requests
   when: on_success

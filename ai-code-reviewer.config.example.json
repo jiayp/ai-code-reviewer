@@ -1,0 +1,21 @@
+{
+  "gitlab": {
+    "apiUrl": "https://gitlab.example.com/api/v4",
+    "accessToken": "your-gitlab-token-here",
+    "projectId": 12345,
+    "mergeRequestId": "678"
+  },
+  "openai": {
+    "apiUrl": "https://api.openai.com",
+    "accessToken": "sk-your-openai-token-here",
+    "model": "gpt-4",
+    "organizationId": "org-your-org-id",
+    "temperature": 0.1,
+    "stream": false
+  },
+  "prompts": {
+    "systemContent": "You are an expert code reviewer specializing in identifying bugs, performance issues, and optimization opportunities. Provide constructive feedback and suggest best practices.",
+    "suggestContent": "Please review the following code changes from a Git merge request. Focus on:\n- Potential bugs or logic errors\n- Performance improvements\n- Code quality and maintainability\n- Security concerns\nProvide specific, actionable feedback in Chinese. Use bullet points for multiple issues. Reply with '666' if no issues found.",
+    "fullContent": "Please analyze the complete file content provided below for code review purposes."
+  }
+}
