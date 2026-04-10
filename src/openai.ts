@@ -37,13 +37,22 @@ export class OpenAI {
         content: change
       }
     ];
-    const response = await this.apiClient.post('/v1/chat/completions', data, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.accessTokens[newIndex]}`
+    try {
+      const response = await this.apiClient.post('/v1/chat/completions', data, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.accessTokens[newIndex]}`
+        }
+      });
+      if (!response.data.choices?.[0]?.message?.content) {
+        console.log('request data: ', data);
+        console.log('response data: ', response.data);
+        console.log('response data messages: ', response.data.choices?.[0]?.message);
       }
-    });
-    console.log('choices: ', response.data.choices);
-    return response.data.choices?.[0]?.message?.content;
+      return response.data.choices?.[0]?.message?.content;
+    } catch (error: unknown) {
+      console.error('OpenAI request failed:', error);
+      throw new Error(`OpenAI request failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }

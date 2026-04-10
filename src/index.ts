@@ -79,7 +79,6 @@ async function run() {
         if ((lineObj?.new_line && lineObj?.new_line > 0) || (lineObj.old_line && lineObj.old_line > 0)) {
           try {
             const suggestion = await openai.reviewCodeChange(item);
-            console.log('suggestion: ', suggestion);
             if (!suggestion.includes('666')) {
               await gitlab.addReviewComment(lineObj, change, suggestion);
             }

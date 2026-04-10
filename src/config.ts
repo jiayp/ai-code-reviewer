@@ -1,7 +1,100 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Simple TOML parser for basic config needs
+function parseTOML(content: string): any {
+  const result: any = {};
+  const lines = content.split('\n');
+  let currentSection = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+
+    // Skip empty lines and comments
+    if (!line || line.startsWith('#')) continue;
+
+    // Section headers
+    if (line.startsWith('[') && line.endsWith(']')) {
+      currentSection = line.slice(1, -1);
+      result[currentSection] = {};
+      continue;
+    }
+
+    // Key-value pairs
+    const equalIndex = line.indexOf('=');
+    if (equalIndex > 0) {
+      const key = line.slice(0, equalIndex).trim();
+      let value: any = line.slice(equalIndex + 1).trim();
+
+      // Check if this starts a multi-line string
+      if (value === '"""') {
+        // Collect multi-line string
+        let multilineContent = '';
+        i++; // Move to next line
+        while (i < lines.length) {
+          const contentLine = lines[i];
+          if (contentLine.trim() === '"""') {
+            // End of multi-line string
+            break;
+          }
+          multilineContent += contentLine + '\n';
+          i++;
+        }
+        // Remove trailing newline
+        multilineContent = multilineContent.replace(/\n$/, '');
+
+        if (currentSection) {
+          result[currentSection][key] = multilineContent;
+        } else {
+          result[key] = multilineContent;
+        }
+        continue;
+      }
+
+      // Handle regular values
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      } else if (value === 'true') {
+        value = true;
+      } else if (value === 'false') {
+        value = false;
+      } else if (!isNaN(Number(value)) && value !== '') {
+        value = Number(value);
+      }
+
+      if (currentSection) {
+        result[currentSection][key] = value;
+      } else {
+        result[key] = value;
+      }
+    }
+  }
+
+  return result;
+}
 export interface Config {
+  gitlab: {
+    apiUrl: string;
+    accessToken: string;
+    projectId: number;
+    mergeRequestId: string;
+  };
+  openai: {
+    apiUrl: string;
+    accessToken: string;
+    model: string;
+    organizationId?: string;
+    temperature: number;
+    stream: boolean;
+  };
+  prompts: {
+    systemContent: string;
+    suggestContent: string;
+    fullContent: string;
+  };
+}
+
+export interface RawConfig {
   gitlab: {
     apiUrl: string;
     accessToken: string;
@@ -55,25 +148,41 @@ export const defaultConfig: Config = {
 };
 
 export function loadConfig(configPath?: string): Config {
-  const configFilePath = configPath || path.join(process.cwd(), 'ai-code-reviewer.config.json');
+  const possiblePaths = [
+    configPath,
+    path.join(process.cwd(), 'ai-code-reviewer.config.toml'),
+    path.join(process.cwd(), 'ai-code-reviewer.config.json')
+  ].filter(Boolean) as string[];
 
-  try {
+  for (const configFilePath of possiblePaths) {
     if (fs.existsSync(configFilePath)) {
-      const configData = fs.readFileSync(configFilePath, 'utf-8');
-      const userConfig = JSON.parse(configData);
-      return mergeConfigs(defaultConfig, userConfig);
+      try {
+        const configData = fs.readFileSync(configFilePath, 'utf-8');
+
+        if (configFilePath.endsWith('.toml')) {
+          const rawConfig: RawConfig = parseTOML(configData);
+          return processRawConfig(rawConfig);
+        } else {
+          const rawConfig: RawConfig = JSON.parse(configData);
+          return processRawConfig(rawConfig);
+        }
+      } catch (error) {
+        console.warn(`Warning: Could not load config file ${configFilePath}, trying next... Error: ${error}`);
+      }
     }
-  } catch (error) {
-    console.warn(`Warning: Could not load config file ${configFilePath}, using defaults. Error: ${error}`);
   }
 
   return defaultConfig;
 }
 
-function mergeConfigs(defaultConfig: Config, userConfig: Partial<Config>): Config {
+function processRawConfig(rawConfig: RawConfig): Config {
   return {
-    gitlab: { ...defaultConfig.gitlab, ...userConfig.gitlab },
-    openai: { ...defaultConfig.openai, ...userConfig.openai },
-    prompts: { ...defaultConfig.prompts, ...userConfig.prompts }
+    gitlab: rawConfig.gitlab,
+    openai: rawConfig.openai,
+    prompts: {
+      systemContent: rawConfig.prompts.systemContent,
+      suggestContent: rawConfig.prompts.suggestContent,
+      fullContent: rawConfig.prompts.fullContent
+    }
   };
 }

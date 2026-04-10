@@ -25,44 +25,66 @@ npm i @buxuku/ai-code-reviewer
 
 ## 配置
 
-项目支持通过配置文件进行配置。默认配置文件名为 `ai-code-reviewer.config.json`，位于项目根目录。
+项目支持通过 TOML 或 JSON 配置文件进行配置。默认配置文件名为 `ai-code-reviewer.config.toml`，位于项目根目录。
 
-### 配置文件格式
+### TOML 配置文件格式
 
-```json
-{
-  "gitlab": {
-    "apiUrl": "https://gitlab.com/api/v4",
-    "accessToken": "your-gitlab-token",
-    "projectId": 12345,
-    "mergeRequestId": "678"
-  },
-  "openai": {
-    "apiUrl": "https://api.openai.com",
-    "accessToken": "your-openai-token",
-    "model": "gpt-4",
-    "organizationId": "org-id",
-    "temperature": 0.1,
-    "stream": false
-  },
-  "prompts": {
-    "systemContent": "You are a code reviewer...",
-    "suggestContent": "Next, I will send you each step...",
-    "fullContent": "First step, the following is..."
-  }
-}
+```toml
+[gitlab]
+apiUrl = "https://gitlab.com/api/v4"
+accessToken = ""
+projectId = 0
+mergeRequestId = ""
+
+[openai]
+apiUrl = "https://api.openai.com"
+accessToken = ""
+model = "gpt-3.5-turbo"
+organizationId = ""
+temperature = 0.0
+stream = false
+
+[prompts]
+systemContent = """
+你是一位资深的软件架构与代码设计审查专家。
+因为主业务流程测试已经覆盖，所以你更关注代码的长期健康度。
+你的核心使命是发现：架构耦合过紧、扩展性瓶颈、并发资源竞争、
+内存/连接泄漏、错误吞没、事务边界不当等短期测试难以暴露的隐患。
+"""
+suggestContent = """
+接下来，我会发送本次合并请求的 git diff 格式补丁。
+你的审查任务如下：
+- **仅审查 diff 中实际修改的代码行**，严禁展开分析未修改的周边上下文。
+- 代码已通过编译和 Lint 检查且能成功运行，因此**忽略语法、格式和未使用变量类问题**。
+- **聚焦于隐患**：聚焦于测试不易发现的隐患。
+- **聚焦于设计和代码质量问题**：仅当发现明确的设计和代码质量问题时才报告。
+- **给出修改建议**
+- **不确定性禁止输出**：凡包含"或许"、"可能"的语句一律删除。
+- **若无有效问题，仅回复数字 `666`**，不要输出任何解释性文字。
+- 反馈必须使用中文，若有多个意见使用列表符号，无需解释代码原本的功能。
+
+以下是本次提交的变更内容：
+"""
+fullContent = """
+第一步，以下是该文件的完整修订文本。
+请仔细理解该文件内的代码逻辑，以便为后续的 diff 片段提供准确的上下文锚点：
+"""
 ```
+
+### JSON 配置文件格式（兼容）
+
+项目也支持 JSON 格式的配置文件，格式与 TOML 相同。
 
 ### 配置优先级
 
 1. 命令行参数优先级最高，会覆盖配置文件中的设置
-2. 如果未提供命令行参数，则使用配置文件中的值
+2. 配置文件：首先查找 `ai-code-reviewer.config.toml`，如果不存在则查找 `ai-code-reviewer.config.json`
 3. 如果配置文件不存在或某项配置缺失，则使用默认值
 
 ### 自定义配置文件路径
 
 ```sh
-ai-code-reviewer -c /path/to/your/config.json -p 432288 -r 8
+ai-code-reviewer -c /path/to/your/config.toml -p 432288 -r 8
 ```
 
 ## 使用
