@@ -1,6 +1,6 @@
 {
   "name": "@kiol/ai-code-reviewer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "index.js",
   "bin": {
     "ai-code-reviewer": "./bin/index.js"
