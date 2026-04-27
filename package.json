@@ -12,7 +12,8 @@
   "scripts": {
     "start": "tsc --watch",
     "build": "tsc",
-    "web": "node ./lib/web/index.js"
+    "web": "node ./lib/web/index.js web",
+    "publish": "npm publish --access public"
   },
   "license": "MIT",
   "repository": {
