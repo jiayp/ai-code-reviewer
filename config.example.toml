@@ -1,16 +1,20 @@
 [gitlab]
-accessToken = ""
-apiUrl = "https://gitlab.com/api/v4"
-mergeRequestId = ""
-projectId = 0
+accessToken = "your-gitlab-token-here"
+apiUrl = "https://gitlab.example.com/api/v4"
+mergeRequestId = "678"
+projectId = 12345
 
 [openai]
-accessToken = ""
+accessToken = "sk-your-openai-token-here"
 apiUrl = "https://api.openai.com"
-model = "gpt-3.5-turbo"
-organizationId = ""
+model = "gpt-4"
+organizationId = "org-your-org-id"
 stream = false
-temperature = 0.0
+temperature = 0.1
+
+[webhook]
+port = 8080
+secretToken = "your-webhook-secret-token"
 
 [prompts]
 suggestContent = """
