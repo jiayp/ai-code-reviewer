@@ -82,14 +82,11 @@ program
     // Merge CLI overrides into config.webhook section
     // Merge CLI overrides into config sections
     config.gitlab.apiUrl = options.gitlabApiUrl || config.gitlab.apiUrl;
-    config.gitlab.accessToken =
-      options.gitlabAccessToken || config.gitlab.accessToken;
+    config.gitlab.accessToken = options.gitlabAccessToken || config.gitlab.accessToken;
     config.openai.apiUrl = options.openaiApiUrl || config.openai.apiUrl;
-    config.openai.accessToken =
-      options.openaiAccessToken || config.openai.accessToken;
+    config.openai.accessToken = options.openaiAccessToken || config.openai.accessToken;
     config.openai.model = options.model || config.openai.model;
-    config.openai.organizationId =
-      options.organizationId || config.openai.organizationId;
+    config.openai.organizationId = options.organizationId || config.openai.organizationId;
     if (options.temperature !== undefined) {
       config.openai.temperature = parseFloat(options.temperature);
     }

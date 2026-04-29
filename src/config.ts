@@ -96,6 +96,9 @@ export interface Config {
     suggestContent: string;
     fullContent: string;
   };
+  codeReview?: {
+    maxLinesForGrouping: number;
+  };
 }
 
 export interface RawConfig {
@@ -122,6 +125,9 @@ export interface RawConfig {
     suggestContent: string;
     fullContent: string;
   };
+  codeReview?: {
+    maxLinesForGrouping?: number;
+  };
 }
 
 export const defaultConfig: Config = {
@@ -143,18 +149,24 @@ export const defaultConfig: Config = {
     port: 8080,
     secretToken: "",
   },
+  codeReview: {
+    maxLinesForGrouping: 2000,
+  },
   prompts: {
     systemContent:
       "You are a code reviewer,Your role is to identify bugs, performance issues, and areas for optimization in the submitted  code. You are also responsible for providing constructive feedback and suggesting best practices to improve the overall quality of the code. ",
-    suggestContent: `Next, I will send you each step of the merge request in standard git diff format, your task is:
-      - Review the code changes (diffs) in the patch and provide feedback.
+    suggestContent: `Next, I will send you the complete diff of a file in standard git diff format. Your task is:
+      - Review all code changes (diffs) in this file and provide feedback for each issue found.
       - Examine it carefully to see if it really has bugs or needs room for optimization, highlight them.
       - The code is compiled and passed linting and can run successfully, so please focus on potential issues and improvements rather than syntax errors.
       - Do not highlight minor issues and nitpicks.
-      - Use bullet points if you have multiple comments.
+      - For each issue found, you MUST specify the line number where the problem occurs using the format: 【行号】评论内容
+        For example: 【42】这个变量应该使用 const 声明
+                 【105】这里可能存在空指针异常，建议添加非空判断
+      - If multiple issues exist in the same line, use separate 【行号】 for each issue.
       - You don't have to explain what the code does
       - please use chinese to give feedback.
-      - If you think there is no need to optimize or modify, please reply with 666.
+      - If you think there is no need to optimize or modify, please reply with only 666 (nothing else).
       Here are the changes that were committed this time`,
     fullContent:
       "First step, the following is the revised full text of this file. Please carefully understand the code content in this file.",
@@ -198,6 +210,10 @@ function processRawConfig(rawConfig: RawConfig): Config {
     webhook: {
       port: rawConfig.webhook?.port || defaultConfig.webhook.port,
       secretToken: rawConfig.webhook?.secretToken || "",
+    },
+    codeReview: {
+      maxLinesForGrouping:
+        rawConfig.codeReview?.maxLinesForGrouping ?? defaultConfig.codeReview!.maxLinesForGrouping,
     },
     prompts: {
       systemContent: rawConfig.prompts.systemContent,

@@ -1,106 +1,132 @@
-import axios, {AxiosInstance} from 'axios';
-
+import axios, { AxiosInstance } from "axios";
 
 export interface IGitLabConfig {
-    gitlabApiUrl: string;
-    gitlabAccessToken: string;
-    projectId: string;
-    mergeRequestId: string;
+  gitlabApiUrl: string;
+  gitlabAccessToken: string;
+  projectId: string;
+  mergeRequestId: string;
 }
 
 interface IMergeRequestInfo {
-    source_branch: string;
-    diff_refs: {
-        base_sha: string;
-        head_sha: string;
-        start_sha: string;
-    }
+  source_branch: string;
+  diff_refs: {
+    base_sha: string;
+    head_sha: string;
+    start_sha: string;
+  };
 }
 
 const parseLastDiff = (gitDiff: string) => {
-    const diffList = gitDiff.split('\n').reverse();
-    const lastLineFirstChar = diffList?.[1]?.[0];
-    const lastDiff =
-        diffList.find((item) => {
-            return /^@@ \-\d+,\d+ \+\d+,\d+ @@/g.test(item);
-        }) || '';
+  const diffList = gitDiff.split("\n").reverse();
+  const lastLineFirstChar = diffList?.[1]?.[0];
+  const lastDiff =
+    diffList.find((item) => {
+      return /^@@ \-\d+,\d+ \+\d+,\d+ @@/g.test(item);
+    }) || "";
 
-    const [lastOldLineCount, lastNewLineCount] = lastDiff
-        .replace(/@@ \-(\d+),(\d+) \+(\d+),(\d+) @@.*/g, ($0, $1, $2, $3, $4) => {
-            return `${+$1 + +$2},${+$3 + +$4}`;
-        })
-        .split(',');
+  const [lastOldLineCount, lastNewLineCount] = lastDiff
+    .replace(/@@ \-(\d+),(\d+) \+(\d+),(\d+) @@.*/g, ($0, $1, $2, $3, $4) => {
+      return `${+$1 + +$2},${+$3 + +$4}`;
+    })
+    .split(",");
 
-    if (!/^\d+$/.test(lastOldLineCount) || !/^\d+$/.test(lastNewLineCount)) {
-        return {
-            old_line: -1,
-            new_line: -1,
-        };
-    }
-
-    const old_line = lastLineFirstChar === '+' ? -1 : (parseInt(lastOldLineCount) || 0) - 1;
-    const new_line = lastLineFirstChar === '-' ? -1 : (parseInt(lastNewLineCount) || 0) - 1;
-
+  if (!/^\d+$/.test(lastOldLineCount) || !/^\d+$/.test(lastNewLineCount)) {
     return {
-        old_line,
-        new_line,
+      old_line: -1,
+      new_line: -1,
     };
+  }
+
+  const old_line = lastLineFirstChar === "+" ? -1 : (parseInt(lastOldLineCount) || 0) - 1;
+  const new_line = lastLineFirstChar === "-" ? -1 : (parseInt(lastNewLineCount) || 0) - 1;
+
+  return {
+    old_line,
+    new_line,
+  };
 };
 
 export class GitLab {
-    private apiClient: AxiosInstance;
-    private projectId: string;
-    private mrId: string;
-    private diffRefs: {};
-    private mergeRequestInfo?: IMergeRequestInfo;
+  private apiClient: AxiosInstance;
+  private projectId: string;
+  private mrId: string;
+  private diffRefs: {};
+  private mergeRequestInfo?: IMergeRequestInfo;
 
-    constructor({gitlabApiUrl, gitlabAccessToken, projectId, mergeRequestId}: IGitLabConfig) {
-        this.projectId = projectId;
-        this.mrId = mergeRequestId;
-        this.diffRefs = {};
-        this.apiClient = axios.create({
-            baseURL: gitlabApiUrl,
-            headers: {
-                'Private-Token': gitlabAccessToken,
-            },
-        });
+  constructor({ gitlabApiUrl, gitlabAccessToken, projectId, mergeRequestId }: IGitLabConfig) {
+    this.projectId = projectId;
+    this.mrId = mergeRequestId;
+    this.diffRefs = {};
+    this.apiClient = axios.create({
+      baseURL: gitlabApiUrl,
+      headers: {
+        "Private-Token": gitlabAccessToken,
+      },
+    });
+  }
+
+  async init() {
+    await this.getMergeRequestInfo();
+  }
+
+  async getMergeRequestInfo() {
+    const response = await this.apiClient.get(
+      `/projects/${this.projectId}/merge_requests/${this.mrId}`,
+    );
+    this.mergeRequestInfo = response?.data;
+  }
+
+  async getMergeRequestChanges() {
+    const response = await this.apiClient.get(
+      `/projects/${this.projectId}/merge_requests/${this.mrId}/diffs`,
+    );
+    const changes = response.data?.map((item: Record<string, any>) => {
+      const { old_line, new_line } = parseLastDiff(item.diff);
+      return { ...item, old_line, new_line };
+    });
+    return changes;
+  }
+
+  async getFileContent(filePath: string) {
+    const response = await this.apiClient.get(
+      `/projects/${this.projectId}/repository/files/${encodeURIComponent(filePath)}/raw?ref=${this.mergeRequestInfo?.source_branch}`,
+    );
+    return response?.data || "";
+  }
+
+  async addReviewComment(lineObj: object, change: Record<string, any>, suggestion: string) {
+    try {
+      const response = await this.apiClient.post(
+        `/projects/${this.projectId}/merge_requests/${this.mrId}/discussions`,
+        {
+          body: suggestion,
+          position: {
+            position_type: "text",
+            ...lineObj,
+            new_path: change.new_path,
+            old_path: change.old_path,
+            ...this.mergeRequestInfo?.diff_refs,
+          },
+        },
+      );
+      return response.data;
+    } catch (error: unknown) {
+      // ✅ 先做类型判断，才能安全访问
+      if (axios.isAxiosError(error)) {
+        // 这里 TypeScript 知道 error 是 AxiosError
+        if (error.response) {
+          // 服务器返回了非 2xx 的响应
+          console.log("状态码：", error.response.status);
+          console.log("GitLab 错误信息：", error.response.data);
+          console.log("请求行对象：", lineObj);
+        } else {
+          // 请求发出去了但没收到响应（网络问题等）
+          console.log("未收到响应：", error.message);
+        }
+      } else {
+        // 非 Axios 抛出的异常（比如代码逻辑错误）
+        console.log("其他错误：", error);
+      }
     }
-
-    async init() {
-        await this.getMergeRequestInfo();
-    }
-
-    async getMergeRequestInfo() {
-        const response = await this.apiClient.get(`/projects/${this.projectId}/merge_requests/${this.mrId}`);
-        this.mergeRequestInfo = response?.data;
-    }
-
-    async getMergeRequestChanges() {
-        const response = await this.apiClient.get(`/projects/${this.projectId}/merge_requests/${this.mrId}/diffs`);
-        const changes = response.data?.map((item: Record<string, any>) => {
-            const {old_line, new_line} = parseLastDiff(item.diff);
-            return {...item, old_line, new_line};
-        });
-        return changes;
-    }
-
-    async getFileContent(filePath: string) {
-        const response = await this.apiClient.get(`/projects/${this.projectId}/repository/files/${encodeURIComponent(filePath)}/raw?ref=${this.mergeRequestInfo?.source_branch}`);
-        return response?.data || '';
-    }
-
-    async addReviewComment(lineObj: object, change: Record<string, any>, suggestion: string) {
-
-        const response = await this.apiClient.post(`/projects/${this.projectId}/merge_requests/${this.mrId}/discussions`, {
-            body: suggestion,
-            position: {
-                position_type: 'text',
-                ...lineObj,
-                new_path: change.new_path,
-                old_path: change.old_path,
-                ...this.mergeRequestInfo?.diff_refs,
-            },
-        });
-        return response.data;
-    }
+  }
 }

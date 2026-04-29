@@ -41,12 +41,10 @@ export class WebServer {
     });
 
     // Error handling middleware
-    this.app.use(
-      (err: Error, _req: Request, res: Response, _next: NextFunction) => {
-        console.error("[Web] Unhandled error:", err);
-        res.status(500).json({ error: "Internal Server Error" });
-      },
-    );
+    this.app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+      console.error("[Web] Unhandled error:", err);
+      res.status(500).json({ error: "Internal Server Error" });
+    });
   }
 
   /**
@@ -59,19 +57,13 @@ export class WebServer {
     });
 
     // GitLab Merge Request Webhook endpoint
-    this.app.post(
-      "/webhooks/merge-request",
-      this.handleGitlabWebhook.bind(this),
-    );
+    this.app.post("/webhooks/merge-request", this.handleGitlabWebhook.bind(this));
   }
 
   /**
    * Handle incoming GitLab webhook requests
    */
-  private async handleGitlabWebhook(
-    req: Request,
-    res: Response,
-  ): Promise<void> {
+  private async handleGitlabWebhook(req: Request, res: Response): Promise<void> {
     try {
       // Verify secret token if configured
       const receivedToken = req.headers["x-gitlab-token"] as string | undefined;
@@ -86,9 +78,7 @@ export class WebServer {
 
       // Validate event type
       if (body.object_kind !== "merge_request") {
-        console.log(
-          `[Web] Ignoring non-merge-request event: ${body.object_kind}`,
-        );
+        console.log(`[Web] Ignoring non-merge-request event: ${body.object_kind}`);
         res.json({ received: true, message: "Not a merge request event" });
         return;
       }
@@ -141,14 +131,9 @@ export class WebServer {
       }
 
       // Perform code review
-      console.log(
-        `[Web] Triggering review for project ${projectId}, MR #${mergeRequestId}`,
-      );
+      console.log(`[Web] Triggering review for project ${projectId}, MR #${mergeRequestId}`);
 
-      const summary = await this.codeReviewService.reviewMergeRequest(
-        projectId,
-        mergeRequestId,
-      );
+      const summary = await this.codeReviewService.reviewMergeRequest(projectId, mergeRequestId);
 
       res.json({
         received: true,
@@ -187,8 +172,7 @@ export class WebServer {
     const assignsCurrent = event.object_attributes?.assigns;
     if (Array.isArray(assignsCurrent) && assignsCurrent.length > 0) {
       // Check if it was previously empty or null
-      const previousAssignees =
-        changes.assignees?.previous || changes.assignees_before;
+      const previousAssignees = changes.assignees?.previous || changes.assignees_before;
 
       if (!previousAssignees || JSON.stringify(previousAssignees) === "[]") {
         return "assign";
@@ -196,10 +180,7 @@ export class WebServer {
     }
 
     // Fallback for state change events (e.g., when MR is opened)
-    if (
-      event.object_attributes?.state === "opened" &&
-      event.event_type === "merge_request"
-    ) {
+    if (event.object_attributes?.state === "opened" && event.event_type === "merge_request") {
       return "open";
     }
 
@@ -214,9 +195,7 @@ export class WebServer {
     this.app.listen(port, () => {
       console.log(`[Web] Server listening on http://localhost:${port}`);
       console.log(`[Web] Health check: http://localhost:${port}/health`);
-      console.log(
-        `[Web] Webhook endpoint: POST http://localhost:${port}/webhooks/merge-request`,
-      );
+      console.log(`[Web] Webhook endpoint: POST http://localhost:${port}/webhooks/merge-request`);
     });
   }
 
