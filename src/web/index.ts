@@ -163,13 +163,7 @@ export class WebServer {
   private detectAction(event: any): string {
     const changes = event.changes || {};
 
-    // Check if assignees field changed
-    if (changes.assignees !== undefined) {
-      return "assign";
-    }
-
-    // Fallback for GitLab's webhook format variations
-    const assignsCurrent = event.object_attributes?.assigns;
+    const assignsCurrent = event.object_attributes?.assignee_ids;
     if (Array.isArray(assignsCurrent) && assignsCurrent.length > 0) {
       // Check if it was previously empty or null
       const previousAssignees = changes.assignees?.previous || changes.assignees_before;
