@@ -76,25 +76,6 @@ export class OpenAI {
     const newIndex = (this.accessTokenIndex =
       this.accessTokenIndex >= this.accessTokens.length - 1 ? 0 : this.accessTokenIndex + 1);
 
-    // 为文件组审查创建专门的prompt
-    const groupSuggestContent = {
-      role: "user",
-      content: `Next, I will send you the combined diffs of multiple related files in standard git diff format. The files are separated by "---END_OF_FILE---" markers and each file starts with "=== filename ===".
-
-Your task is to review all code changes across these files and provide feedback for each issue found. For each issue:
-- You MUST specify both the file name AND line number where the problem occurs using the format: 【文件路径:行号】评论内容
-  For example: 【src/utils/helper.ts:42】这个变量应该使用 const 声明
-               【api/controller.ts:105】这里可能存在空指针异常，建议添加非空判断
-- If multiple issues exist in different files, use separate markers for each.
-- The code is compiled and passed linting and can run successfully, so please focus on potential issues and improvements rather than syntax errors.
-- Do not highlight minor issues and nitpicks.
-- You don't have to explain what the code does
-- Please use Chinese to give feedback.
-- If you think there is no need to optimize or modify in any of these files, please reply with only 666 (nothing else).
-
-Here are the changes that were committed this time:`,
-    };
-
     const data: ICompletion = {
       ...openAiCompletionsConfig,
       model: this.model,
@@ -102,7 +83,7 @@ Here are the changes that were committed this time:`,
     };
     data.messages = [
       systemContent,
-      groupSuggestContent,
+      suggestContent,
       { role: "user", content: groupDiffContent },
     ];
 

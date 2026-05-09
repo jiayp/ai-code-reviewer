@@ -1,6 +1,6 @@
 import { GitLab } from "../gitlab";
 import { OpenAI } from "../openai";
-import { delay } from "../utils";
+import { delay, buildPositionForGitLab } from "../utils";
 import { Config } from "../config";
 
 // ==================== 导出接口定义 ====================
@@ -52,6 +52,15 @@ interface GroupFileInfo {
   diffContent: string;
   addedLines: number;
   removedLines: number;
+}
+
+/** 解析后的评论，包含行号类型（+ = 新增, - = 删除, 无符号 = 上下文） */
+interface ParsedComment {
+  filePath?: string;
+  lineNumber: number;
+  lineType: 'added' | 'removed' | 'context';
+  codeContent?: string;
+  content: string;
 }
 
 /** 文件组 - 用于一起发送给AI审查的文件集合 */
@@ -277,6 +286,7 @@ export class CodeReviewService {
     const parsedComments = this.parseAiGroupComments(suggestion, filePaths);
 
     if (parsedComments.length === 0) {
+      console.log(suggestion);
       console.log(`[CodeReview] No specific comments could be parsed`);
       return { commentsPosted: 0, errors: [] };
     }
@@ -583,12 +593,15 @@ ${fileSummary}
           continue;
         }
 
-        const lineObj = { new_line: comment.lineNumber };
+        const { lineNumber, lineType, codeContent } = comment;
+
+        const lineObj = buildPositionForGitLab(lineNumber, lineType, targetFile, codeContent);
+
         console.log(
-          `[CodeReview] Posting comment at line ${comment.lineNumber} for file: ${filePath}`,
+          `[CodeReview] Posting comment at old_line ${lineNumber} → position: ${JSON.stringify(lineObj)} (${lineType}) for file: ${filePath}`,
         );
 
-        await gitlab.addReviewComment(lineObj, targetFile, comment.content);
+        await gitlab.addReviewComment(lineObj as any, targetFile, comment.content);
         commentsPosted++;
       } catch (error: any) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -608,62 +621,137 @@ ${fileSummary}
   // ==================== 评论解析方法 ====================
 
   /**
-   * 解析组审查时 AI 返回的评论，支持【文件路径:行号】格式
-   * 例如：
-   * - 【file.ts:42】评论内容
-   * - 【src/utils/helper.ts:105】评论内容
+   * 解析组审查时 AI 返回的评论。
+   *
+   * 新格式（推荐）：【文件路径:+/-行号:代码行内容】
+   *   例如：【src/foo.java:+131:  List<Indicator> findByCodeIn(String[] codes);】
+   * 旧格式（兼容）：【文件路径:+/-行号】
+   *   例如：【src/foo.java:+131】
+   *
+   * + = 新增行, - = 删除行, 无符号 = 上下文行
    */
   private parseAiGroupComments(
     suggestion: string,
     validFilePaths: string[],
-  ): Array<{ filePath?: string; lineNumber: number; content: string }> {
-    const comments: Array<{ filePath?: string; lineNumber: number; content: string }> = [];
+  ): ParsedComment[] {
+    const comments: ParsedComment[] = [];
 
-    // 首先尝试匹配【文件完整路径:行号】格式
-    // 正则说明：
-    // 【[^】]+  匹配【之后直到第一个】之前的所有字符（排除闭合括号）
-    // [:]\s*    匹配最后一个冒号和可选空格
-    // (\d+)    捕获行号数字
-    // 】       闭合括号
-    const fileLineRegex = /【([^】]+):\s*(\d+)】/g;
+    // 先匹配新格式：【文件路径:行号:代码行内容】
+    // match[1]=文件路径, match[2]=行号(含前缀), match[3]=代码行内容
+    const newFormatRegex = /【([^】]+):\s*([+-]?\d+):\s*([^】]+)】/g;
     let match;
 
-    while ((match = fileLineRegex.exec(suggestion)) !== null) {
-      // match[1] 是完整的文件路径（如：iot/src/main/java/...java）
+    while ((match = newFormatRegex.exec(suggestion)) !== null) {
       const filePathCandidate = match[1].trim();
-      const lineNumber = parseInt(match[2], 10);
+      const rawLineNum = match[2];
+      const codeContent = match[3].trim();
+      const lineTypePrefix = rawLineNum.charAt(0);
+
+      let lineNumber: number;
+      let lineType: 'added' | 'removed' | 'context';
+
+      if (lineTypePrefix === '+') {
+        lineNumber = parseInt(rawLineNum.slice(1), 10);
+        lineType = 'added';
+      } else if (lineTypePrefix === '-') {
+        lineNumber = parseInt(rawLineNum.slice(1), 10);
+        lineType = 'removed';
+      } else {
+        lineNumber = parseInt(rawLineNum, 10);
+        lineType = 'context';
+      }
 
       if (isNaN(lineNumber) || lineNumber <= 0 || !filePathCandidate) {
         continue;
       }
 
-      // 提取评论内容：从当前匹配结束后到下一个【标签前或字符串结尾
-      const contentStartIndex = fileLineRegex.lastIndex;
+      const contentStartIndex = newFormatRegex.lastIndex;
       const nextTagMatch = suggestion.substring(contentStartIndex).match(/【/);
       const contentEndIndex = nextTagMatch
         ? contentStartIndex + (nextTagMatch.index ?? 0)
         : suggestion.length;
 
-      // 获取评论内容（去除前导空格和换行）
       let rawContent = suggestion.substring(contentStartIndex, contentEndIndex).trim();
 
       if (!rawContent) {
         continue;
       }
 
-      // 验证文件路径是否在有效的文件列表中
       const isValidPath = validFilePaths.some(
         (fp) => fp === filePathCandidate || fp.endsWith(filePathCandidate),
       );
 
       if (isValidPath) {
-        comments.push({ filePath: filePathCandidate, lineNumber, content: rawContent });
+        comments.push({
+          filePath: filePathCandidate,
+          lineNumber,
+          lineType,
+          codeContent: codeContent || undefined,
+          content: rawContent,
+        });
       } else {
         console.warn(`[CodeReview] Comment references unknown file path: "${filePathCandidate}"`);
       }
     }
 
-    // 如果没有匹配到带文件路径的格式，尝试只匹配【行号】格式（向后兼容）
+    // 如果新格式匹配到结果就不再尝试旧格式
+    if (comments.length > 0) return comments;
+
+    // 向后兼容：旧格式【文件路径:行号】
+    const oldFormatRegex = /【([^】]+):\s*([+-]?\d+)】/g;
+
+    while ((match = oldFormatRegex.exec(suggestion)) !== null) {
+      const filePathCandidate = match[1].trim();
+      const rawLineNum = match[2];
+      const lineTypePrefix = rawLineNum.charAt(0);
+
+      let lineNumber: number;
+      let lineType: 'added' | 'removed' | 'context';
+
+      if (lineTypePrefix === '+') {
+        lineNumber = parseInt(rawLineNum.slice(1), 10);
+        lineType = 'added';
+      } else if (lineTypePrefix === '-') {
+        lineNumber = parseInt(rawLineNum.slice(1), 10);
+        lineType = 'removed';
+      } else {
+        lineNumber = parseInt(rawLineNum, 10);
+        lineType = 'context';
+      }
+
+      if (isNaN(lineNumber) || lineNumber <= 0 || !filePathCandidate) {
+        continue;
+      }
+
+      const contentStartIndex = oldFormatRegex.lastIndex;
+      const nextTagMatch = suggestion.substring(contentStartIndex).match(/【/);
+      const contentEndIndex = nextTagMatch
+        ? contentStartIndex + (nextTagMatch.index ?? 0)
+        : suggestion.length;
+
+      let rawContent = suggestion.substring(contentStartIndex, contentEndIndex).trim();
+
+      if (!rawContent) {
+        continue;
+      }
+
+      const isValidPath = validFilePaths.some(
+        (fp) => fp === filePathCandidate || fp.endsWith(filePathCandidate),
+      );
+
+      if (isValidPath) {
+        comments.push({
+          filePath: filePathCandidate,
+          lineNumber,
+          lineType,
+          content: rawContent,
+        });
+      } else {
+        console.warn(`[CodeReview] Comment references unknown file path: "${filePathCandidate}"`);
+      }
+    }
+
+    // 向后兼容：如果没有带文件路径的评论，尝试只匹配【行号】格式（视为 context）
     if (comments.length === 0) {
       const lineOnlyRegex = /【(\d+)】\s*([\s\S]*?)(?=【\d+】|$)/g;
       let match2;
@@ -673,7 +761,7 @@ ${fileSummary}
         const content = match2[2].trim();
 
         if (!isNaN(lineNumber) && lineNumber > 0 && content.length > 0) {
-          comments.push({ filePath: undefined, lineNumber, content });
+          comments.push({ filePath: undefined, lineNumber, lineType: 'context', content });
         }
       }
     }

@@ -30,6 +30,26 @@ suggestContent = """
 - **若无有效问题，仅回复数字 `666`**，不要输出任何解释性文字。
 - 反馈必须使用中文，若有多个意见使用列表符号，无需解释代码原本的功能。
 
+**输出格式（重要）**：
+每个评审意见必须使用以下格式，包含文件路径、行号类型、行号、以及该行的代码内容：
+【文件完整路径:行号类型行号:该行代码内容】
+评审意见正文
+
+说明：
+- 行号是 diff 中新文件的行号，需从前缀 @@ -L,C +L,C @@ 的新文件起始行开始推算
+- 新增行用 + 前缀，如：+131
+- 删除行用 - 前缀，如：-42
+- 未改行无需前缀，如：105
+- "该行代码内容" 是指 diff 中该行的完整代码文本（不含 diff 的 +/-/空格前缀）
+- 评审意见另起一行写
+
+正确示例：
+【src/main/java/com/example/IndicatorRepository.java:+131:  List<Indicator> findByCodeIn(String[] codes);】
+建议对 codes 参数做空值校验。
+
+【src/main/java/com/example/IndicatorRepository.java:45:    return total.longValue();】
+此处返回可能抛出NullPointerException，建议用 Optional 包装。
+
 以下是本次提交的变更内容：
 """
 systemContent = """

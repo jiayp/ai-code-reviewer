@@ -119,6 +119,7 @@ export class GitLab {
           console.log("状态码：", error.response.status);
           console.log("GitLab 错误信息：", error.response.data);
           console.log("请求行对象：", lineObj);
+          console.log("建议:", suggestion);
         } else {
           // 请求发出去了但没收到响应（网络问题等）
           console.log("未收到响应：", error.message);
