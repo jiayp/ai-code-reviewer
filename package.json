@@ -1,9 +1,9 @@
 {
   "name": "@kiol/ai-code-reviewer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "main": "lib/index.js",
   "bin": {
-    "ai-code-reviewer": "./bin/index.js"
+    "ai-code-reviewer": "bin/index.js"
   },
   "files": [
     "lib",
@@ -18,7 +18,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jiayp/ai-code-reviewer"
+    "url": "git+https://github.com/jiayp/ai-code-reviewer.git"
   },
   "dependencies": {
     "@types/cors": "^2.8.13",
