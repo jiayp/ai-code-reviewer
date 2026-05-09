@@ -5,7 +5,7 @@
 
 > 🤖 基于 AI 的 GitLab Merge Request 自动化代码审查工具
 
-`@kiol/ai-code-reviewer` 是一款智能代码审查小工具，它集成到 GitLab 工作流中，自动分析 Merge Request (MR) 的代码变更并提供专业审查意见。支持私有化部署和多种大语言模型提供商。既支持集成到CI/CD工作流调用，也支持gitlab Webhook事件触发。
+`@kiol/ai-code-reviewer` 是一款智能代码审查小工具，它集成到 GitLab 工作流中，自动分析 Merge Request (MR) 的代码变更并提供专业审查意见。
 
 ![Preview](preview.png)
 
@@ -14,8 +14,8 @@
 - 🤖 **AI 驱动**：调用 OpenAI 兼容 API（GPT、Claude、通义千问等）进行智能代码审查
 - 🛠️ **GitLab 原生集成**：支持私有化部署的 GitLab，直接评论到 MR 对应行号
 - 🌍 **多模型支持**：兼容任何 OpenAI API 格式的模型提供商
+- 💬 **精准评论**：审查结果以评论形式追加到具体代码行,批量发送代码，AI关联审核
 - ⏱️ **智能重试**：API 速率限制时自动等待并重试
-- 💬 **精准评论**：审查结果以评论形式追加到具体代码行,一次发送所有修改，AI进行关联审核
 - 🎯 **按需触发**：Webhook 模式下仅在实际分配 reviewer 时触发审查
 - 🔧 **灵活配置**：支持 TOML/JSON 配置文件和命令行参数
 
