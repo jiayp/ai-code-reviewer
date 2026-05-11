@@ -171,23 +171,19 @@ export class WebServer {
 
     const assignsCurrent = event.object_attributes?.assignee_ids;
     if (Array.isArray(assignsCurrent) && assignsCurrent.length > 0) {
+      //新增MR有指派人，也需要审查
+      if (event.object_attributes?.action === "open") {
+        return "assign";
+      }
       console.log(changes.assignees);
       // Check if it was previously empty or null
       if (
         changes.assignees &&
-        (changes.assignees?.previous === undefined ||
-          JSON.stringify(changes.assignees?.previous) === "[]")
+        (changes.assignees.previous === undefined ||
+          JSON.stringify(changes.assignees.previous) === "[]")
       ) {
         return "assign";
       }
-    }
-
-    // Fallback for state change events (e.g., when MR is opened)
-    if (
-      event.object_attributes?.state === "opened" &&
-      event.event_type === "merge_request"
-    ) {
-      return "open";
     }
 
     return "unknown";
