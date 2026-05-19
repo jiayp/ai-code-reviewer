@@ -58,7 +58,7 @@ interface GroupFileInfo {
 interface ParsedComment {
   filePath?: string;
   lineNumber: number;
-  lineType: 'added' | 'removed' | 'context';
+  lineType: "added" | "removed" | "context";
   codeContent?: string;
   content: string;
 }
@@ -106,7 +106,10 @@ export class CodeReviewService {
   /**
    * 执行完整的代码审查流程（核心方法）
    */
-  async reviewMergeRequest(projectId: number, mergeRequestId: string): Promise<ReviewSummary> {
+  async reviewMergeRequest(
+    projectId: number,
+    mergeRequestId: string,
+  ): Promise<ReviewSummary> {
     const startTime = Date.now();
     const filesReviewed: FileReviewResult[] = [];
     let totalCommentsPosted = 0;
@@ -130,7 +133,12 @@ export class CodeReviewService {
       changes = await gitlab.getMergeRequestChanges();
     } catch (err) {
       console.error("[CodeReview] Failed to get merge request changes:", err);
-      return this.buildSummary(filesReviewed, totalCommentsPosted, 1, startTime);
+      return this.buildSummary(
+        filesReviewed,
+        totalCommentsPosted,
+        1,
+        startTime,
+      );
     }
 
     if (!changes || changes.length === 0) {
@@ -149,12 +157,46 @@ export class CodeReviewService {
 
     // --- Step 4: 收集有效文件并跳过无效文件 ---
     const validChangesMap = new Map<string, any>();
+    let skippedRenamed = 0;
+    let skippedDeleted = 0;
+    let skippedEmptyDiff = 0;
+    let skippedNonStandardDiff = 0;
 
     for (const change of changes) {
       const filePath = change.new_path || change.old_path;
 
-      if (change.renamed_file || change.deleted_file || !change?.diff?.startsWith("@@")) {
-        // 记录跳过文件的结果（重命名、删除等）
+      if (change.renamed_file) {
+        skippedRenamed++;
+        filesReviewed.push({
+          filePath,
+          commentsPosted: 0,
+          skipped: true,
+          errors: [],
+        });
+      } else if (change.deleted_file) {
+        skippedDeleted++;
+        filesReviewed.push({
+          filePath,
+          commentsPosted: 0,
+          skipped: true,
+          errors: [],
+        });
+      } else if (!change.diff || change.diff.length === 0) {
+        skippedEmptyDiff++;
+        filesReviewed.push({
+          filePath,
+          commentsPosted: 0,
+          skipped: true,
+          errors: [],
+        });
+      } else if (!change.diff.startsWith("@@")) {
+        skippedNonStandardDiff++;
+        const diffPreview = (change.diff || "")
+          .substring(0, 50)
+          .replace(/\n/g, "\\n");
+        console.log(
+          `[CodeReview] Skipping file without unified diff: ${filePath} (diff: "${diffPreview}...")`,
+        );
         filesReviewed.push({
           filePath,
           commentsPosted: 0,
@@ -166,9 +208,34 @@ export class CodeReviewService {
       }
     }
 
+    console.log(
+      `[CodeReview] Filter summary: ${changes.length} total from API → ${validChangesMap.size} valid`,
+    );
+    if (skippedEmptyDiff > 0) {
+      console.log(
+        `[CodeReview]   ${skippedEmptyDiff} skipped (empty diff, no actual changes)`,
+      );
+    }
+    if (skippedRenamed > 0) {
+      console.log(`[CodeReview]   ${skippedRenamed} skipped (renamed)`);
+    }
+    if (skippedDeleted > 0) {
+      console.log(`[CodeReview]   ${skippedDeleted} skipped (deleted)`);
+    }
+    if (skippedNonStandardDiff > 0) {
+      console.log(
+        `[CodeReview]   ${skippedNonStandardDiff} skipped (non-standard diff, e.g. binary)`,
+      );
+    }
+
     if (validChangesMap.size === 0) {
       console.log(`[CodeReview] No valid changes to review`);
-      return this.buildSummary(filesReviewed, totalCommentsPosted, totalErrors, startTime);
+      return this.buildSummary(
+        filesReviewed,
+        totalCommentsPosted,
+        totalErrors,
+        startTime,
+      );
     }
 
     // --- Step 5: 统计总变更行数 ---
@@ -178,7 +245,9 @@ export class CodeReviewService {
       totalChangedLines += lineCount.totalChangedLines;
     }
 
-    console.log(`[CodeReview] Total changed lines across all files: ${totalChangedLines}`);
+    console.log(
+      `[CodeReview] Total changed lines across all files: ${totalChangedLines}`,
+    );
 
     // --- Step 6: 根据总行数决定审查策略 ---
     const reviewResult = await this.executeReviewStrategy(
@@ -216,7 +285,12 @@ export class CodeReviewService {
       }
     }
 
-    return this.buildSummary(filesReviewed, totalCommentsPosted, totalErrors, startTime);
+    return this.buildSummary(
+      filesReviewed,
+      totalCommentsPosted,
+      totalErrors,
+      startTime,
+    );
   }
 
   // ==================== 审查策略执行 ====================
@@ -241,7 +315,12 @@ export class CodeReviewService {
       console.log(
         `[CodeReview] Total changes (${totalChangedLines} lines) exceeds limit, requesting AI grouping`,
       );
-      return await this.reviewFilesWithAIGrouping(openai, validChangesMap, gitlab);
+      return await this.reviewFilesWithAIGrouping(
+        openai,
+        validChangesMap,
+        gitlab,
+        Math.ceil(totalChangedLines / this.maxLinesForGrouping),
+      );
     }
   }
 
@@ -260,12 +339,17 @@ export class CodeReviewService {
 
     // 构建所有文件的diff内容，每个文件之间用分隔符隔开
     const allDiffContent = Array.from(validChangesMap.values())
-      .map((change) => `=== ${change.new_path || change.old_path} ===\n${change.diff}\n`)
+      .map(
+        (change) =>
+          `=== ${change.new_path || change.old_path} ===\n${change.diff}\n`,
+      )
       .join("---END_OF_FILE---\n");
 
     const filePaths = Array.from(validChangesMap.keys());
 
-    console.log(`[CodeReview] Reviewing all ${filePaths.length} files together`);
+    console.log(
+      `[CodeReview] Reviewing all ${filePaths.length} files together`,
+    );
 
     // 调用AI进行审查
     let suggestion: string;
@@ -292,7 +376,9 @@ export class CodeReviewService {
     }
 
     // 构建文件上下文（用于查找change对象）
-    const fileContexts: GroupFileInfo[] = Array.from(validChangesMap.values()).map((change) => ({
+    const fileContexts: GroupFileInfo[] = Array.from(
+      validChangesMap.values(),
+    ).map((change) => ({
       filePath: change.new_path || change.old_path,
       change,
       diffContent: change.diff,
@@ -301,7 +387,11 @@ export class CodeReviewService {
     }));
 
     // 委托给统一方法发布评论
-    const result = await this.postCommentsWithFileContext(suggestion, fileContexts, gitlab);
+    const result = await this.postCommentsWithFileContext(
+      suggestion,
+      fileContexts,
+      gitlab,
+    );
 
     return { commentsPosted: result.commentsPosted, errors: result.errors };
   }
@@ -315,23 +405,28 @@ export class CodeReviewService {
     openai: OpenAI,
     validChangesMap: Map<string, any>,
     gitlab: GitLab,
+    groupCount: number,
   ): Promise<{ commentsPosted: number; errors: string[] }> {
     let totalCommentsPosted = 0;
     const allErrors: string[] = [];
 
     // --- Step 1: 获取所有文件的元信息用于AI分组 ---
-    const fileInfos: LargeFileInfo[] = Array.from(validChangesMap.values()).map((change) => ({
-      filePath: change.new_path || change.old_path,
-      addedLines: this.countDiffLines(change.diff).addedLines,
-      removedLines: this.countDiffLines(change.diff).removedLines,
-    }));
+    const fileInfos: LargeFileInfo[] = Array.from(validChangesMap.values()).map(
+      (change) => ({
+        filePath: change.new_path || change.old_path,
+        addedLines: this.countDiffLines(change.diff).addedLines,
+        removedLines: this.countDiffLines(change.diff).removedLines,
+      }),
+    );
 
-    console.log(`[CodeReview] Requesting AI to group ${fileInfos.length} files...`);
+    console.log(
+      `[CodeReview] Requesting AI to group ${fileInfos.length} files...`,
+    );
 
     // --- Step 2: 请求AI进行智能分组 ---
     let aiGroups: AIFileGroupingResult["groups"];
     try {
-      aiGroups = await this.requestAIGrouping(openai, fileInfos);
+      aiGroups = await this.requestAIGrouping(openai, fileInfos, groupCount);
     } catch (error: any) {
       console.error("[CodeReview] Error during AI grouping:", error);
       throw new Error(`AI grouping failed: ${error.message}`);
@@ -368,26 +463,46 @@ export class CodeReviewService {
         totalCommentsPosted += result.commentsPosted;
 
         if (result.errors.length > 0) {
-          allErrors.push(...result.errors.map((e) => `Group "${group.groupName}": ${e}`));
+          allErrors.push(
+            ...result.errors.map((e) => `Group "${group.groupName}": ${e}`),
+          );
         }
       } catch (error: any) {
-        console.error(`[CodeReview] Error reviewing group "${group.groupName}":`, error);
+        console.error(
+          `[CodeReview] Error reviewing group "${group.groupName}":`,
+          error,
+        );
 
         // 重试逻辑
         if (error?.response?.status === 429) {
-          console.log("[CodeReview] Rate limited, waiting 60 seconds before retry...");
+          console.log(
+            "[CodeReview] Rate limited, waiting 60 seconds before retry...",
+          );
           await delay(60 * 1000);
 
           try {
-            const retryResult = await this.reviewFileGroup(openai, group, gitlab);
+            const retryResult = await this.reviewFileGroup(
+              openai,
+              group,
+              gitlab,
+            );
             totalCommentsPosted += retryResult.commentsPosted;
 
             if (retryResult.errors.length > 0) {
-              allErrors.push(...retryResult.errors.map((e) => `Retry "${group.groupName}": ${e}`));
+              allErrors.push(
+                ...retryResult.errors.map(
+                  (e) => `Retry "${group.groupName}": ${e}`,
+                ),
+              );
             }
           } catch (retryError: any) {
-            console.error(`[CodeReview] Retry failed for group "${group.groupName}":`, retryError);
-            allErrors.push(`Retry failed for "${group.groupName}": ${retryError.message}`);
+            console.error(
+              `[CodeReview] Retry failed for group "${group.groupName}":`,
+              retryError,
+            );
+            allErrors.push(
+              `Retry failed for "${group.groupName}": ${retryError.message}`,
+            );
           }
         } else {
           allErrors.push(`Group "${group.groupName}" failed: ${error.message}`);
@@ -431,6 +546,7 @@ export class CodeReviewService {
   private async requestAIGrouping(
     openai: OpenAI,
     largeFileInfos: LargeFileInfo[],
+    groupCount: number,
   ): Promise<AIFileGroupingResult["groups"]> {
     const fileSummary = largeFileInfos
       .map(
@@ -439,7 +555,7 @@ export class CodeReviewService {
       )
       .join("\n");
 
-    const prompt = `我有以下大文件的变更信息，请根据文件的相关性和功能模块将它们分成若干个逻辑组。每组的目标是总变更行数尽量控制在 2000 行以内（如果单个文件本身就超过2000行则单独一组）。
+    const prompt = `我有以下大文件的变更信息，以方便代码审查为目的，按照逻辑关联性，把文件分成${groupCount}组。
 
 文件列表：
 ${fileSummary}
@@ -480,11 +596,31 @@ ${fileSummary}
       }
 
       const parsed: AIFileGroupingResult = JSON.parse(jsonStr);
-      console.log(`[CodeReview] AI suggested ${parsed.groups.length} groups for large files`);
+      console.log(
+        `[CodeReview] AI suggested ${parsed.groups.length} groups for large files`,
+      );
+      if (parsed.groups.length === 0) {
+        console.warn(
+          `[CodeReview] Fallback: Putting all large files in one group`,
+        );
+        console.warn(`[CodeReview] AI prompt: ${prompt}`);
+        console.warn(`[CodeReview] AI response: ${response}`);
+        return [
+          {
+            groupName: "All Large Files",
+            files: largeFileInfos.map((info) => info.filePath),
+          },
+        ];
+      }
       return parsed.groups;
     } catch (error) {
-      console.error("[CodeReview] Failed to parse AI grouping response:", error);
-      console.warn(`[CodeReview] Fallback: Putting all large files in one group`);
+      console.error(
+        "[CodeReview] Failed to parse AI grouping response:",
+        error,
+      );
+      console.warn(
+        `[CodeReview] Fallback: Putting all large files in one group`,
+      );
 
       // 如果AI分组失败，将所有大文件放在一个组中（作为兜底方案）
       return [
@@ -523,19 +659,29 @@ ${fileSummary}
     try {
       suggestion = await openai.reviewGroupChanges(groupDiffContent);
     } catch (error: any) {
-      console.error(`[CodeReview] Failed to review group ${group.groupName}:`, error);
-      throw new Error(`Failed to review group ${group.groupName}: ${error.message}`);
+      console.error(
+        `[CodeReview] Failed to review group ${group.groupName}:`,
+        error,
+      );
+      throw new Error(
+        `Failed to review group ${group.groupName}: ${error.message}`,
+      );
     }
 
     // 如果建议包含 "666"，表示没有问题需要反馈
     if (suggestion.includes("666")) {
-      console.log(`[CodeReview] No issues found in group: "${group.groupName}"`);
+      console.log(
+        `[CodeReview] No issues found in group: "${group.groupName}"`,
+      );
       return { commentsPosted: 0, errors: [] };
     }
 
     // 解析AI返回的评论
     const validFilePaths = group.files.map((f) => f.filePath);
-    const parsedComments = this.parseAiGroupComments(suggestion, validFilePaths);
+    const parsedComments = this.parseAiGroupComments(
+      suggestion,
+      validFilePaths,
+    );
 
     if (parsedComments.length === 0) {
       console.log(
@@ -545,7 +691,11 @@ ${fileSummary}
     }
 
     // 按行号发布评审意见（委托给统一方法）
-    const result = await this.postCommentsWithFileContext(suggestion, group.files, gitlab);
+    const result = await this.postCommentsWithFileContext(
+      suggestion,
+      group.files,
+      gitlab,
+    );
 
     return { commentsPosted: result.commentsPosted, errors: result.errors };
   }
@@ -559,7 +709,10 @@ ${fileSummary}
     gitlab: GitLab,
   ): Promise<{ commentsPosted: number; errors: string[] }> {
     const validFilePaths = fileContexts.map((f) => f.filePath);
-    const parsedComments = this.parseAiGroupComments(suggestion, validFilePaths);
+    const parsedComments = this.parseAiGroupComments(
+      suggestion,
+      validFilePaths,
+    );
 
     let commentsPosted = 0;
     const fileErrors: string[] = [];
@@ -572,7 +725,10 @@ ${fileSummary}
         if (comment.filePath) {
           // 使用【文件:行号】格式指定的文件路径 - 精确匹配或后缀匹配
           for (const file of fileContexts) {
-            if (file.filePath === comment.filePath || file.filePath.endsWith(comment.filePath)) {
+            if (
+              file.filePath === comment.filePath ||
+              file.filePath.endsWith(comment.filePath)
+            ) {
               targetFile = file.change;
               filePath = file.filePath;
               break;
@@ -595,13 +751,22 @@ ${fileSummary}
 
         const { lineNumber, lineType, codeContent } = comment;
 
-        const lineObj = buildPositionForGitLab(lineNumber, lineType, targetFile, codeContent);
+        const lineObj = buildPositionForGitLab(
+          lineNumber,
+          lineType,
+          targetFile,
+          codeContent,
+        );
 
         console.log(
           `[CodeReview] Posting comment at old_line ${lineNumber} → position: ${JSON.stringify(lineObj)} (${lineType}) for file: ${filePath}`,
         );
 
-        await gitlab.addReviewComment(lineObj as any, targetFile, comment.content);
+        await gitlab.addReviewComment(
+          lineObj as any,
+          targetFile,
+          comment.content,
+        );
         commentsPosted++;
       } catch (error: any) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -648,17 +813,17 @@ ${fileSummary}
       const lineTypePrefix = rawLineNum.charAt(0);
 
       let lineNumber: number;
-      let lineType: 'added' | 'removed' | 'context';
+      let lineType: "added" | "removed" | "context";
 
-      if (lineTypePrefix === '+') {
+      if (lineTypePrefix === "+") {
         lineNumber = parseInt(rawLineNum.slice(1), 10);
-        lineType = 'added';
-      } else if (lineTypePrefix === '-') {
+        lineType = "added";
+      } else if (lineTypePrefix === "-") {
         lineNumber = parseInt(rawLineNum.slice(1), 10);
-        lineType = 'removed';
+        lineType = "removed";
       } else {
         lineNumber = parseInt(rawLineNum, 10);
-        lineType = 'context';
+        lineType = "context";
       }
 
       if (isNaN(lineNumber) || lineNumber <= 0 || !filePathCandidate) {
@@ -671,7 +836,9 @@ ${fileSummary}
         ? contentStartIndex + (nextTagMatch.index ?? 0)
         : suggestion.length;
 
-      let rawContent = suggestion.substring(contentStartIndex, contentEndIndex).trim();
+      let rawContent = suggestion
+        .substring(contentStartIndex, contentEndIndex)
+        .trim();
 
       if (!rawContent) {
         continue;
@@ -690,7 +857,9 @@ ${fileSummary}
           content: rawContent,
         });
       } else {
-        console.warn(`[CodeReview] Comment references unknown file path: "${filePathCandidate}"`);
+        console.warn(
+          `[CodeReview] Comment references unknown file path: "${filePathCandidate}"`,
+        );
       }
     }
 
@@ -706,17 +875,17 @@ ${fileSummary}
       const lineTypePrefix = rawLineNum.charAt(0);
 
       let lineNumber: number;
-      let lineType: 'added' | 'removed' | 'context';
+      let lineType: "added" | "removed" | "context";
 
-      if (lineTypePrefix === '+') {
+      if (lineTypePrefix === "+") {
         lineNumber = parseInt(rawLineNum.slice(1), 10);
-        lineType = 'added';
-      } else if (lineTypePrefix === '-') {
+        lineType = "added";
+      } else if (lineTypePrefix === "-") {
         lineNumber = parseInt(rawLineNum.slice(1), 10);
-        lineType = 'removed';
+        lineType = "removed";
       } else {
         lineNumber = parseInt(rawLineNum, 10);
-        lineType = 'context';
+        lineType = "context";
       }
 
       if (isNaN(lineNumber) || lineNumber <= 0 || !filePathCandidate) {
@@ -729,7 +898,9 @@ ${fileSummary}
         ? contentStartIndex + (nextTagMatch.index ?? 0)
         : suggestion.length;
 
-      let rawContent = suggestion.substring(contentStartIndex, contentEndIndex).trim();
+      let rawContent = suggestion
+        .substring(contentStartIndex, contentEndIndex)
+        .trim();
 
       if (!rawContent) {
         continue;
@@ -747,7 +918,9 @@ ${fileSummary}
           content: rawContent,
         });
       } else {
-        console.warn(`[CodeReview] Comment references unknown file path: "${filePathCandidate}"`);
+        console.warn(
+          `[CodeReview] Comment references unknown file path: "${filePathCandidate}"`,
+        );
       }
     }
 
@@ -761,7 +934,12 @@ ${fileSummary}
         const content = match2[2].trim();
 
         if (!isNaN(lineNumber) && lineNumber > 0 && content.length > 0) {
-          comments.push({ filePath: undefined, lineNumber, lineType: 'context', content });
+          comments.push({
+            filePath: undefined,
+            lineNumber,
+            lineType: "context",
+            content,
+          });
         }
       }
     }
@@ -773,7 +951,10 @@ ${fileSummary}
    * 统计文件组总变更行数（用于日志）
    */
   private countGroupLines(group: FileGroup): number {
-    return group.files.reduce((total, file) => total + file.addedLines + file.removedLines, 0);
+    return group.files.reduce(
+      (total, file) => total + file.addedLines + file.removedLines,
+      0,
+    );
   }
 
   // ==================== 辅助方法 ====================

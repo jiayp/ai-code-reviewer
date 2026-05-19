@@ -37,8 +37,10 @@ const parseLastDiff = (gitDiff: string) => {
     };
   }
 
-  const old_line = lastLineFirstChar === "+" ? -1 : (parseInt(lastOldLineCount) || 0) - 1;
-  const new_line = lastLineFirstChar === "-" ? -1 : (parseInt(lastNewLineCount) || 0) - 1;
+  const old_line =
+    lastLineFirstChar === "+" ? -1 : (parseInt(lastOldLineCount) || 0) - 1;
+  const new_line =
+    lastLineFirstChar === "-" ? -1 : (parseInt(lastNewLineCount) || 0) - 1;
 
   return {
     old_line,
@@ -53,7 +55,12 @@ export class GitLab {
   private diffRefs: {};
   private mergeRequestInfo?: IMergeRequestInfo;
 
-  constructor({ gitlabApiUrl, gitlabAccessToken, projectId, mergeRequestId }: IGitLabConfig) {
+  constructor({
+    gitlabApiUrl,
+    gitlabAccessToken,
+    projectId,
+    mergeRequestId,
+  }: IGitLabConfig) {
     this.projectId = projectId;
     this.mrId = mergeRequestId;
     this.diffRefs = {};
@@ -77,14 +84,37 @@ export class GitLab {
   }
 
   async getMergeRequestChanges() {
-    const response = await this.apiClient.get(
-      `/projects/${this.projectId}/merge_requests/${this.mrId}/diffs`,
+    let allChanges: any[] = [];
+    let page = 1;
+    const perPage = 20; // GitLab 默认每页 20 条，服务端对更高值不稳定
+
+    while (true) {
+      const response = await this.apiClient.get(
+        `/projects/${this.projectId}/merge_requests/${this.mrId}/diffs`,
+        { params: { page, per_page: perPage } },
+      );
+
+      const pageChanges =
+        response.data?.map((item: Record<string, any>) => {
+          const { old_line, new_line } = parseLastDiff(item.diff);
+          return { ...item, old_line, new_line };
+        }) || [];
+
+      allChanges = allChanges.concat(pageChanges);
+
+      const totalPages = parseInt(response.headers["x-total-pages"] || "1", 10);
+      console.log(
+        `[GitLab] Fetched page ${page}/${totalPages} (${pageChanges.length} files), accumulated: ${allChanges.length}`,
+      );
+
+      if (page >= totalPages) break;
+      page++;
+    }
+
+    console.log(
+      `[GitLab] Total changes fetched: ${allChanges.length} files across ${page} pages`,
     );
-    const changes = response.data?.map((item: Record<string, any>) => {
-      const { old_line, new_line } = parseLastDiff(item.diff);
-      return { ...item, old_line, new_line };
-    });
-    return changes;
+    return allChanges;
   }
 
   async getFileContent(filePath: string) {
@@ -94,7 +124,11 @@ export class GitLab {
     return response?.data || "";
   }
 
-  async addReviewComment(lineObj: object, change: Record<string, any>, suggestion: string) {
+  async addReviewComment(
+    lineObj: object,
+    change: Record<string, any>,
+    suggestion: string,
+  ) {
     try {
       const response = await this.apiClient.post(
         `/projects/${this.projectId}/merge_requests/${this.mrId}/discussions`,

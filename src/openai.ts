@@ -1,5 +1,9 @@
 import axios, { AxiosInstance } from "axios";
-import { openAiCompletionsConfig, suggestContent, systemContent } from "./utils";
+import {
+  openAiCompletionsConfig,
+  suggestContent,
+  systemContent,
+} from "./utils";
 
 interface ICompletion {
   messages?: { role: string; content: string }[];
@@ -34,7 +38,9 @@ export class OpenAI {
 
   async reviewCodeChange(change: string): Promise<string> {
     const newIndex = (this.accessTokenIndex =
-      this.accessTokenIndex >= this.accessTokens.length - 1 ? 0 : this.accessTokenIndex + 1);
+      this.accessTokenIndex >= this.accessTokens.length - 1
+        ? 0
+        : this.accessTokenIndex + 1);
     const data: ICompletion = {
       ...openAiCompletionsConfig,
       model: this.model,
@@ -58,7 +64,10 @@ export class OpenAI {
       if (!response.data.choices?.[0]?.message?.content) {
         console.log("request data: ", data);
         console.log("response data: ", response.data);
-        console.log("response data messages: ", response.data.choices?.[0]?.message);
+        console.log(
+          "response data messages: ",
+          response.data.choices?.[0]?.message,
+        );
       }
       return response.data.choices?.[0]?.message?.content;
     } catch (error: unknown) {
@@ -74,7 +83,9 @@ export class OpenAI {
    */
   async reviewGroupChanges(groupDiffContent: string): Promise<string> {
     const newIndex = (this.accessTokenIndex =
-      this.accessTokenIndex >= this.accessTokens.length - 1 ? 0 : this.accessTokenIndex + 1);
+      this.accessTokenIndex >= this.accessTokens.length - 1
+        ? 0
+        : this.accessTokenIndex + 1);
 
     const data: ICompletion = {
       ...openAiCompletionsConfig,
@@ -112,29 +123,13 @@ export class OpenAI {
    */
   async requestGrouping(fileListPrompt: string): Promise<string> {
     const newIndex = (this.accessTokenIndex =
-      this.accessTokenIndex >= this.accessTokens.length - 1 ? 0 : this.accessTokenIndex + 1);
+      this.accessTokenIndex >= this.accessTokens.length - 1
+        ? 0
+        : this.accessTokenIndex + 1);
 
     const groupingContent = {
       role: "user",
-      content: `You are a code architect assistant. I will send you a list of files with their change line counts from a merge request. Your task is to group these files logically based on their functional relationships, module structure, or dependency patterns.
-
-Grouping rules:
-1. Files that work together (e.g., controller + service + model) should be in the same group
-2. Files related to the same feature or business domain should be grouped together
-3. Try to keep total changed lines per group under 2000 when possible
-4. If a single file has more than 2000 changed lines, it should be in its own group
-
-Please return your grouping result as valid JSON with this exact structure:
-{
-  "groups": [
-    {
-      "groupName": "GroupName",
-      "files": ["file1.ts", "file2.ts"]
-    }
-  ]
-}
-
-IMPORTANT: Return ONLY the JSON object, nothing else. No markdown code fences, no explanations.`,
+      content: fileListPrompt,
     };
 
     const data: ICompletion = {

@@ -12,6 +12,7 @@
   "scripts": {
     "start": "tsc --watch",
     "build": "tsc",
+    "test": "tsc && node tests/lineNumberMapper.test.js && node tests/runner.test.js",
     "web": "node ./lib/web/index.js web",
     "publish": "npm publish --access public"
   },
